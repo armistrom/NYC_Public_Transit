@@ -1,0 +1,30 @@
+# Python cache / virtual env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.env
+.venv
+nyc/
+
+# OS
+.DS_Store
+
+# Large data/outputs (regenerate from scripts)
+/data/
+/outputs/
+/notebooks/.ipynb_checkpoints/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+
+# Keep report sources and figures
+!docs/report/main.tex
+!docs/report/figures/
