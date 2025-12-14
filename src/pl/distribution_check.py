@@ -1,4 +1,4 @@
-from scipy.stats import norm,poisson,nbinom,chi2
+from scipy.stats import norm,poisson,nbinom,chi2,weibull_min, kstest
 from math import lgamma
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,13 +26,18 @@ def poisson_pmf(k:int, lam:float):
 
 
 
-def poisson_check(emp_dist: np.array):
+def poisson_check(emp_dist: np.array,bin_n = 50):
     dist_mean = np.mean(emp_dist)
     dist_var = np.var(emp_dist, ddof=1)
     dispersion = dist_var / dist_mean
 
-    bin_n = 50
+    # bin_n = 50
     obs_mean = 0
+    obs, bin_edges = np.histogram(emp_dist, bins=bin_n)
+    values = bin_edges[:-1]
+    observed = obs.tolist()
+    obs_mean = np.mean(np.array(observed))
+    bin_n -= 2
     while obs_mean < 5 and bin_n > 1:
         obs, bin_edges = np.histogram(emp_dist, bins=bin_n)
         values = bin_edges[:-1]
@@ -103,7 +108,7 @@ def nb_param(emp_dist:np.array):
     p_param = n_param / (n_param + dist_mean)
     return n_param, p_param
 
-def nb_check(emp_dist: np.array):
+def nb_check(emp_dist: np.array,bin_n = 50):
 
     n_param, p_param = nb_param(emp_dist)
 
@@ -111,7 +116,7 @@ def nb_check(emp_dist: np.array):
     dist_var = np.var(emp_dist, ddof=1)
     dispersion = dist_var / dist_mean
 
-    bin_n = 50
+    # bin_n = 50
     obs_mean = 0
     while obs_mean < 5 and bin_n > 1:
         obs, bin_edges = np.histogram(emp_dist, bins=bin_n)
@@ -186,6 +191,104 @@ def nb_check(emp_dist: np.array):
         "n_param": n_param,
         "p_param": p_param,
         "p_value": p_value
+    }
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import weibull_min, chi2, kstest
+
+def weibull_check(emp_dist: np.array, bin_n: int = 50, floc: float = 0.0):
+    emp_dist = np.asarray(emp_dist)
+
+    # Empirical stats
+    dist_mean = np.mean(emp_dist)
+    dist_var = np.var(emp_dist, ddof=1)
+    dispersion = dist_var / dist_mean  # var / mean
+
+    # --- fit Weibull (2-param if floc fixed, 3-param otherwise) ---
+    # c = shape, scale = scale parameter
+    if floc is not None:
+        c, loc, scale = weibull_min.fit(emp_dist, floc=floc)
+    else:
+        c, loc, scale = weibull_min.fit(emp_dist)
+
+    # Theoretical expectation (mean) of fitted Weibull
+    weibull_mean = weibull_min.mean(c, loc=loc, scale=scale)
+
+    # --- adaptive binning (same style as poisson_check) ---
+    obs, bin_edges = np.histogram(emp_dist, bins=bin_n)
+    observed = obs.tolist()
+    obs_mean = np.mean(np.array(observed))
+    bin_n -= 2
+    while obs_mean < 5 and bin_n > 1:
+        obs, bin_edges = np.histogram(emp_dist, bins=bin_n)
+        observed = obs.tolist()
+        obs_mean = np.mean(np.array(observed))
+        bin_n -= 2
+    print(f"Final Bin values: {bin_n+2}")
+    n = emp_dist.shape[0]
+
+    # --- expected counts per bin using Weibull CDF ---
+    cdf_vals = weibull_min.cdf(bin_edges, c, loc=loc, scale=scale)
+    expected = []
+    for i in range(len(observed)):
+        p_bin = cdf_vals[i+1] - cdf_vals[i]
+        expected.append(n * p_bin)
+
+    # --- chi-square GOF ---
+    DoF = max(len(observed) - 2, 1)  # 2 params (shape, scale)
+    chi_score = chi_squared(observed, expected)
+    chi_p_value = chi2.sf(chi_score, DoF)
+
+    # --- KS test on original data ---
+    ks_stat, ks_p_value = kstest(emp_dist, 'weibull_min', args=(c, loc, scale))
+
+    # --- quantiles for Q-Q plot ---
+    percentiles = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    q = [p / 100 for p in percentiles]
+    emp_quantile = np.quantile(emp_dist, q)
+    weibull_quantile = weibull_min.ppf(q, c, loc=loc, scale=scale)
+
+    # --- plots: histogram + pdf, and Q-Q, side by side ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Distribution comparison: empirical vs Weibull PDF
+    x_range = np.linspace(emp_dist.min(), emp_dist.max(), 400)
+    weibull_pdf_vals = weibull_min.pdf(x_range, c, loc=loc, scale=scale)
+
+    ax1.hist(emp_dist, bins=30, density=True, alpha=0.6, label='Empirical')
+    ax1.plot(x_range, weibull_pdf_vals, 'r-', lw=2, label='Weibull')
+    ax1.set_xlabel('Value')
+    ax1.set_ylabel('Probability/Density')
+    ax1.set_title('Empirical vs Weibull Distribution')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    # Q-Q plot
+    ax2.plot(emp_quantile, weibull_quantile, 'o', label='Q-Q points')
+    min_val = min(emp_quantile.min(), weibull_quantile.min())
+    max_val = max(emp_quantile.max(), weibull_quantile.max())
+    ax2.plot([min_val, max_val], [min_val, max_val], 'r--', label='Perfect fit')
+    ax2.set_xlabel('Empirical Quantiles')
+    ax2.set_ylabel('Weibull Quantiles')
+    ax2.set_title('Weibull Q-Q Plot')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+    return {
+        'shape': c,
+        'loc': loc,
+        'scale': scale,
+        'weibull_mean': weibull_mean,   # theoretical expectation of fitted Weibull
+        'chi_score': chi_score,
+        'chi_p_value': chi_p_value,
+        'ks_stat': ks_stat,
+        'ks_p_value': ks_p_value,
+        'dispersion': dispersion,
+        'emp_quantile': emp_quantile,
+        'weibull_quantile': weibull_quantile,
     }
 
 
