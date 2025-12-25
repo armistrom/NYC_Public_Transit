@@ -1,81 +1,98 @@
-# Stochastic Modeling of Urban Mobility in New York City (NYC Taxi vs Citi Bike)
+# Stochastic Modelling of Urban Mobility in New York City (Dec 2025)
+**End-to-end trip time modeling (wait + travel) using 35M+ NYC Yellow Taxi + Citi Bike trips**
 
-A lightweight, distribution-first mobility explainer that compares **NYC yellow taxi** vs **Citi Bike** for medium-length trips by estimating:
+This project builds a **parametric stochastic model** to estimate **end-to-end trip time** for urban mobility in NYC by combining:
 
-- **Wait time** (how long until a taxi arrives / a bike becomes available nearby)
-- **Travel time** (how long the trip takes once moving)
+- **Lognormal travel-time regression** (predicts trip duration given distance + temporal context)
+- **Exponential wait-time estimation** from **inter-arrival gaps** across **space–time grids**
 
-The project fits simple stochastic models directly to public datasets (Jan–Jun 2024) and serves predictions in an interactive **Streamlit** dashboard.
-
-**Live demo:** https://nycpublictransit.streamlit.app/  
-**Report:** `ECE225_Project.pdf`  
-**Code:** https://github.com/AtharvRN/NYC_Public_Transit
+The goal is a clean, interpretable model that supports direct comparison between **NYC Yellow Taxi** and **Citi Bike** for typical intra-city trips.
 
 ---
 
-## What this project does
+## Highlights (what I built)
 
-New Yorkers often choose between a taxi (faster pickup, higher cost) and Citi Bike (cheaper/greener, sometimes more reliable in traffic). This tool quantifies that tradeoff using probabilistic models:
-
-### 1) Wait time model (Exponential via inter-arrival rates)
-Because actual rider waits are not directly observed, we use **inter-arrival gaps** as a proxy (time between consecutive pickups/checkouts). For each location and time bucket, we estimate an arrival rate **λ** and convert it to a mean wait:
-
-> **Estimated wait (minutes) = 60 / λ**
-
-Although Poisson/Negative-Binomial arrival counts are explored for diagnostics, the deployed wait estimator uses the exponential mean implied by the observed gap histogram.
-
-### 2) Travel time model (Lognormal regression / GLM)
-Travel minutes are positively skewed with long right tails, so we model travel time with a **lognormal regression**:
+### Parametric end-to-end trip time model
+For each mode (Taxi / Bike), total time is modeled as:
 
 \[
-\log T = \beta_0 + \beta_1 d + \beta_2 d^2 + \beta_3 I_{rush} + \beta_4 I_{weekend} + \epsilon
+T_{total} = T_{wait} + T_{travel}
 \]
 
-At inference time we predict the log mean and convert back to minutes using the lognormal mean correction:
+- **Travel time** is modeled using **lognormal regression**, achieving **~0.62 R² on held-out data**
+- **Wait time** is estimated via **exponential inter-arrival modeling**, computing arrival rates on **space–time grids** and converting them into expected waits
+
+This produces a single estimate that’s directly usable for decision-making: *“How long will this trip take if I choose taxi vs bike right now?”*
+
+---
+
+## Modeling approach
+
+### 1) Travel-time model: lognormal regression
+Trip times are right-skewed and heavy-tailed, so travel time is modeled as lognormal:
 
 \[
-\hat{T} = \exp(\hat{\mu} + 0.5\hat{\sigma}^2)
+\log(T_{travel}) = f(\text{distance}, \text{time-of-day}, \text{weekday/weekend}, \ldots) + \epsilon
 \]
 
-The app uses one model per mode (taxi vs bike) for smooth distance-based predictions without brittle binning.
+Key points:
+- Modeled separately for **Taxi** and **Bike**
+- Built to generalize across trip lengths and avoid brittle binning
+- Achieved **≈ 0.62 R² on held-out data**
+
+---
+
+### 2) Wait-time model: exponential inter-arrival estimation
+Rider wait isn’t always recorded directly, so wait time is estimated from **inter-arrival gaps** (time between consecutive pickups / bike checkouts).
+
+Assumption:
+- Arrivals in a given region/time bucket are approximately **Poisson**, implying exponential inter-arrival gaps.
+
+For each **space–time cell**, estimate arrival rate \( \lambda \) and compute expected wait:
+
+\[
+\mathbb{E}[T_{wait}] = \frac{1}{\lambda}
+\]
+
+This is done across **space–time grids** to capture:
+- geographic variation (zones/stations/areas)
+- time-of-day dynamics
+- weekday vs weekend patterns
+
+---
+
+## Exploratory analysis: grouping strategy + stability
+A major part of the project was an **EDA-driven search for the best grouping strategy** to improve fit and stability:
+
+- distance banding vs continuous distance
+- time-of-day buckets (rush vs off-peak)
+- weekday vs weekend splits
+- alternative aggregation granularities for spatial cells
+
+This analysis improved:
+- **distribution fit** for both travel-time and wait-time components
+- **model stability** (less sensitivity to sparsity/outliers in low-volume segments)
 
 ---
 
 ## Data
+- **35M+ trips total** across two mobility modes:
+  - NYC **Yellow Taxi** trip records
+  - NYC **Citi Bike** trip history
 
-Trained on **Jan–Jun 2024** public datasets:
-
-- **NYC TLC Yellow Taxi Trip Records** (pickup/dropoff timestamps, trip distance, TLC zone IDs)
-- **Citi Bike Historical Trip Data** (start/end timestamps, station coordinates, rideable type, membership flag)
-
-Key scale (used in deployed models):
-- ~17.6M taxi trips (after filtering)
-- ~18.3M Citi Bike rides
+Both datasets were cleaned and filtered to remove invalid durations/distances and improve comparability between modes.
 
 ---
 
-## App experience (Streamlit)
-
-A typical session:
-1. **Select origin/destination** on the map (or by address input).
-2. The app snaps to the nearest:
-   - TLC taxi zone centroid
-   - Citi Bike station
-3. **View wait estimates** for each mode (with fallbacks when a cohort is sparse).
-4. **Compare travel time + total journey time** (wait + travel + walking).
-5. Optionally **inspect diagnostics** that explain the fitted distributions.
+## Outputs
+- End-to-end time estimates (**wait + travel**) for taxi vs bike
+- Mode-specific travel-time models (lognormal regression)
+- Space–time arrival rate tables for wait-time estimation
+- Diagnostic plots comparing empirical vs fitted distributions (by cohort)
 
 ---
 
-## Assumptions & modeling choices
-
-- **Wait time proxy:** Inter-arrival gaps approximate rider wait (imperfect but measurable).
-- **Comparable cohorts:** Trips are filtered to **1–120 minutes** and **≤ 12 km** for comparability; outside this range the app falls back to coarser heuristics.
-- **Features:** Only historically available features are used (distance + rush/weekend indicators). Weather, incidents, pricing, and subway headways are not yet integrated.
-
----
-
-## Repository structure (suggested)
-
-> Adjust names to match your repo if they differ.
-
+## How to run (typical)
+```bash
+pip install -r requirements.txt
+streamlit run app/app.py
