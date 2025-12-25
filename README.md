@@ -1,98 +1,94 @@
 # Stochastic Modelling of Urban Mobility in New York City (Dec 2025)
 **End-to-end trip time modeling (wait + travel) using 35M+ NYC Yellow Taxi + Citi Bike trips**
 
-This project builds a **parametric stochastic model** to estimate **end-to-end trip time** for urban mobility in NYC by combining:
+This project builds an interpretable **parametric stochastic model** to estimate **end-to-end trip time** for urban mobility in NYC by combining:
 
-- **Lognormal travel-time regression** (predicts trip duration given distance + temporal context)
+- **Lognormal travel-time regression** (travel duration as a function of trip distance + temporal context)
 - **Exponential wait-time estimation** from **inter-arrival gaps** across **space–time grids**
 
-The goal is a clean, interpretable model that supports direct comparison between **NYC Yellow Taxi** and **Citi Bike** for typical intra-city trips.
+The model enables direct comparison between **NYC Yellow Taxi** and **Citi Bike** for typical urban trips.
 
 ---
 
-## Highlights (what I built)
-
-### Parametric end-to-end trip time model
-For each mode (Taxi / Bike), total time is modeled as:
-
-\[
-T_{total} = T_{wait} + T_{travel}
-\]
-
-- **Travel time** is modeled using **lognormal regression**, achieving **~0.62 R² on held-out data**
-- **Wait time** is estimated via **exponential inter-arrival modeling**, computing arrival rates on **space–time grids** and converting them into expected waits
-
-This produces a single estimate that’s directly usable for decision-making: *“How long will this trip take if I choose taxi vs bike right now?”*
+## Project highlights (resume-focused)
+- Developed a **parametric end-to-end trip time model** (wait + travel) using **35M+ trips** from **NYC Yellow Taxi** and **Citi Bike**.
+- Combined **lognormal travel-time regression** (**~0.62 R² on held-out data**) with **exponential inter-arrival-based wait-time estimates** computed over **space–time grids**.
+- Performed extensive **exploratory analysis** to identify the best **grouping strategy** (distance bands vs continuous distance, time-of-day, weekday/weekend, spatial granularity), improving **distribution fit** and **model stability** for both travel-time and wait-time components.
 
 ---
 
-## Modeling approach
+## Problem statement
+For a given origin, destination, and departure context (time-of-day / weekday), estimate:
 
-### 1) Travel-time model: lognormal regression
-Trip times are right-skewed and heavy-tailed, so travel time is modeled as lognormal:
+**Total trip time = Wait time + Travel time**
 
-\[
-\log(T_{travel}) = f(\text{distance}, \text{time-of-day}, \text{weekday/weekend}, \ldots) + \epsilon
-\]
-
-Key points:
-- Modeled separately for **Taxi** and **Bike**
-- Built to generalize across trip lengths and avoid brittle binning
-- Achieved **≈ 0.62 R² on held-out data**
+…and compare results for **Taxi vs Bike** under the same conditions.
 
 ---
 
-### 2) Wait-time model: exponential inter-arrival estimation
-Rider wait isn’t always recorded directly, so wait time is estimated from **inter-arrival gaps** (time between consecutive pickups / bike checkouts).
+## Approach
+
+### 1) Travel-time model (Lognormal regression)
+Travel times are positive and right-skewed, so we model travel time using a lognormal form:
+
+- Fit a regression in log-space:
+  - log(T_travel) = f(distance, time-of-day, weekday/weekend, …) + noise
+- Predict travel-time in minutes by converting back from log-space.
+
+**Performance:** ~0.62 R² on held-out data (reported for both modes).
+
+---
+
+### 2) Wait-time model (Exponential inter-arrival estimation)
+Direct rider wait is not always observed, so we estimate wait time from **inter-arrival gaps** (time between consecutive pickups/checkouts).
 
 Assumption:
-- Arrivals in a given region/time bucket are approximately **Poisson**, implying exponential inter-arrival gaps.
+- Arrivals within a given location/time bucket are approximately Poisson → inter-arrival gaps are implied by an exponential rate.
 
-For each **space–time cell**, estimate arrival rate \( \lambda \) and compute expected wait:
+Procedure:
+- Build **space–time grids** (spatial cell × time bucket × weekday/weekend, etc.)
+- Estimate arrival rate **λ** per grid cell from inter-arrival gaps
+- Convert λ to expected wait time
 
-\[
-\mathbb{E}[T_{wait}] = \frac{1}{\lambda}
-\]
-
-This is done across **space–time grids** to capture:
-- geographic variation (zones/stations/areas)
-- time-of-day dynamics
-- weekday vs weekend patterns
+**GitHub-safe formula (renders everywhere):**
+- Expected wait time: **E[T_wait] = 1 / λ**
 
 ---
 
 ## Exploratory analysis: grouping strategy + stability
-A major part of the project was an **EDA-driven search for the best grouping strategy** to improve fit and stability:
+A core part of the work was systematically testing cohort definitions to improve fit and robustness, including:
 
-- distance banding vs continuous distance
-- time-of-day buckets (rush vs off-peak)
-- weekday vs weekend splits
-- alternative aggregation granularities for spatial cells
+- **Distance**: continuous vs distance bands
+- **Time**: time-of-day buckets (rush/off-peak), weekday vs weekend
+- **Space**: different spatial granularities for zones/stations/cells
+- **Sparsity handling**: smoothing / fallback aggregation for low-volume cohorts
 
-This analysis improved:
-- **distribution fit** for both travel-time and wait-time components
-- **model stability** (less sensitivity to sparsity/outliers in low-volume segments)
+This improved:
+- distribution fit (empirical vs fitted alignment)
+- parameter stability across cohorts and time windows
 
 ---
 
 ## Data
-- **35M+ trips total** across two mobility modes:
-  - NYC **Yellow Taxi** trip records
-  - NYC **Citi Bike** trip history
+- **35M+ trips total**, spanning:
+  - **NYC Yellow Taxi** trip record data
+  - **NYC Citi Bike** trip history
 
-Both datasets were cleaned and filtered to remove invalid durations/distances and improve comparability between modes.
+Standard cleaning/filters were applied to remove invalid records and ensure consistent comparisons across modes.
 
 ---
 
 ## Outputs
-- End-to-end time estimates (**wait + travel**) for taxi vs bike
-- Mode-specific travel-time models (lognormal regression)
-- Space–time arrival rate tables for wait-time estimation
-- Diagnostic plots comparing empirical vs fitted distributions (by cohort)
+- End-to-end trip time estimates (**wait + travel**) for taxi vs bike
+- Mode-specific travel-time regression models (lognormal)
+- Space–time arrival rate tables (λ) and expected wait-time estimates
+- Diagnostics (fit plots / cohort distribution checks)
 
 ---
 
-## How to run (typical)
+## How to run (template)
+> Update paths/commands to match your repo.
+
 ```bash
 pip install -r requirements.txt
 streamlit run app/app.py
